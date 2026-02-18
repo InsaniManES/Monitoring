@@ -30,6 +30,10 @@ def fetch(url: str) -> str:
     r.raise_for_status()
     return r.text
 
+def _normalize(s: str) -> str:
+    """Lowercase and collapse whitespace so we can match regardless of case/formatting."""
+    return " ".join(s.lower().split())
+
 def main():
     last_page_hash = None
 
@@ -43,8 +47,10 @@ def main():
                 send_telegram(f"📄 Something changed in the page: {URL}")
             last_page_hash = page_hash
 
-            # Alert when KEYWORD is missing (registration opened)
-            opened = (KEYWORD != "" and KEYWORD not in html)
+            # Alert when KEYWORD is missing (registration opened). Case-insensitive, ignores extra whitespace.
+            html_normalized = _normalize(html)
+            keyword_normalized = _normalize(KEYWORD)
+            opened = (KEYWORD != "" and keyword_normalized not in html_normalized)
 
             if opened:
                 send_telegram(f"🚨 Registration to Israel Congress looks OPEN: {URL}")

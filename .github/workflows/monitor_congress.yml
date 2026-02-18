@@ -17,7 +17,9 @@ jobs:
       - name: Check if keyword exists
         id: check
         run: |
-          if grep -q "Registration will open on" page.html; then
+          # Same logic as monitor.py: case-insensitive, collapse whitespace
+          tr -s ' \n\t\r' ' ' < page.html | tr '[:upper:]' '[:lower:]' > page_normalized.txt
+          if grep -qF "registration will open on" page_normalized.txt; then
             echo "status=closed" >> $GITHUB_OUTPUT
           else
             echo "status=open" >> $GITHUB_OUTPUT
