@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 
+# So print() shows up in docker logs / Docker Desktop immediately
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 COPY requirements.txt .

@@ -17,7 +17,7 @@ jobs:
       - name: Check if keyword exists
         id: check
         run: |
-          if grep -q "Registration will be open on 19/2/2026" page.html; then
+          if grep -q "Registration will open on" page.html; then
             echo "status=closed" >> $GITHUB_OUTPUT
           else
             echo "status=open" >> $GITHUB_OUTPUT

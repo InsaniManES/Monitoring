@@ -11,7 +11,8 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 URL = os.environ.get("URL", "https://www.latino.co.il/r/")
-KEYWORD = os.environ.get("KEYWORD", "")
+# When this text is on the page, registration is closed. When it disappears, registration opened.
+KEYWORD = os.environ.get("KEYWORD", "Registration will open on")
 INTERVAL = int(os.environ.get("INTERVAL_SECONDS", "60"))
 
 STATE_FILE = "/data/state.json"
