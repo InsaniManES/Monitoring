@@ -24,11 +24,11 @@ jobs:
           fi
 
       - name: Send Telegram message if changed
-        if: steps.check.outputs.status == 'closed'
+        if: steps.check.outputs.status == 'open'
         run: |
           curl -s -X POST https://api.telegram.org/bot${{ secrets.BOT_TOKEN }}/sendMessage \
           -d chat_id=${{ secrets.CHAT_ID }} \
-          -d text="🚨 Registration is CLOSED: https://www.latino.co.il/r/"
+          -d text="🚨 Registration is OPEN: https://www.latino.co.il/r/"
 
       - name: Debug
         run: |
