@@ -29,3 +29,8 @@ jobs:
           curl -s -X POST https://api.telegram.org/bot${{ secrets.BOT_TOKEN }}/sendMessage \
           -d chat_id=${{ secrets.CHAT_ID }} \
           -d text="🚨 Registration is OPEN: https://www.latino.co.il/r/"
+
+      - name: Debug
+        run: |
+          echo "URL is $URL"
+          cat page.html | head -20
