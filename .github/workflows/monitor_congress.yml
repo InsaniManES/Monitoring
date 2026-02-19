@@ -5,34 +5,92 @@ on:
     - cron: "*/5 * * * *"  # every 5 minutes
   workflow_dispatch:
 
+env:
+  URL: https://www.latino.co.il/r/
+
 jobs:
   check:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Install Python deps
+        run: python3 -m pip install --quiet requests
+
+      - name: Restore previous state
+        uses: actions/cache/restore@v4
+        with:
+          key: monitor-page-state
+          path: .monitor-state
+
       - name: Fetch page
-        run: |
-          curl -s https://www.latino.co.il/r/ > page.html
+        run: curl -s "${{ env.URL }}" > page.html
 
-      - name: Check if keyword exists
-        id: check
+      - name: Compare and notify on change
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
         run: |
-          # Same logic as monitor.py: case-insensitive, collapse whitespace
-          tr -s ' \n\t\r' ' ' < page.html | tr '[:upper:]' '[:lower:]' > page_normalized.txt
-          if grep -qF "registration will open on" page_normalized.txt; then
-            echo "status=closed" >> $GITHUB_OUTPUT
-          else
-            echo "status=open" >> $GITHUB_OUTPUT
-          fi
+          python3 << 'PY'
+          import os, re, hashlib, difflib, requests
+          from pathlib import Path
 
-      - name: Send Telegram message if changed
-        if: steps.check.outputs.status == 'open'
-        run: |
-          curl -s -X POST https://api.telegram.org/bot${{ secrets.BOT_TOKEN }}/sendMessage \
-          -d chat_id=${{ secrets.CHAT_ID }} \
-          -d text="🚨 Registration is OPEN: https://www.latino.co.il/r/"
+          URL = os.environ["URL"]
+          MAX_LEN = 4096 - 400
 
-      - name: Debug
-        run: |
-          echo "URL is $URL"
-          cat page.html | head -20
+          def text_only(html):
+              text = re.sub(r"<[^>]+>", " ", html)
+              return re.sub(r"\s+", " ", text).strip()
+
+          def describe_changes(old_html, new_html):
+              old_text = text_only(old_html)
+              new_text = text_only(new_html)
+              if old_text == new_text:
+                  return "(no visible text change; possibly markup/whitespace)"
+              parts = []
+              matcher = difflib.SequenceMatcher(None, old_text, new_text)
+              for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                  if tag == "replace":
+                      o, n = old_text[i1:i2].strip(), new_text[j1:j2].strip()
+                      if o or n:
+                          o = (o[:150] + "…") if len(o) > 150 else o
+                          n = (n[:150] + "…") if len(n) > 150 else n
+                          parts.append(f"− {o}\n+ {n}")
+                  elif tag == "delete" and old_text[i1:i2].strip():
+                      parts.append("− " + old_text[i1:i2].strip()[:150])
+                  elif tag == "insert" and new_text[j1:j2].strip():
+                      parts.append("+ " + new_text[j1:j2].strip()[:150])
+              result = "\n\n".join(parts) if parts else "(no visible text change)"
+              return result[:MAX_LEN] + "\n... (truncated)" if len(result) > MAX_LEN else result
+
+          state_dir = Path(".monitor-state")
+          state_dir.mkdir(exist_ok=True)
+          page_html = Path("page.html").read_text(encoding="utf-8", errors="ignore")
+          current_hash = hashlib.sha256(page_html.encode("utf-8", errors="ignore")).hexdigest()
+          last_hash_file = state_dir / "last_hash.txt"
+          last_html_file = state_dir / "last_html.html"
+
+          if last_hash_file.exists():
+              last_hash = last_hash_file.read_text().strip()
+              if last_hash != current_hash and last_html_file.exists():
+                  last_html = last_html_file.read_text(encoding="utf-8", errors="ignore")
+                  change_desc = describe_changes(last_html, page_html)
+                  msg = f"📄 Something changed in the page:\n{URL}\n\nChanges (text):\n{change_desc}"
+                  if len(msg) > 4096:
+                      msg = msg[:4050] + "\n... (truncated)"
+                  token = os.environ["BOT_TOKEN"]
+                  chat_id = os.environ["CHAT_ID"]
+                  requests.post(
+                      f"https://api.telegram.org/bot{token}/sendMessage",
+                      data={"chat_id": chat_id, "text": msg},
+                      timeout=20,
+                  )
+
+          last_hash_file.write_text(current_hash)
+          last_html_file.write_text(page_html)
+          PY
+
+      - name: Save state for next run
+        uses: actions/cache/save@v4
+        with:
+          key: monitor-page-state
+          path: .monitor-state

@@ -16,11 +16,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 URL = os.environ.get("URL", "https://www.latino.co.il/r/")
-# When this text is on the page, registration is closed. When it disappears, registration opened.
-KEYWORD = os.environ.get("KEYWORD", "Registration will open on")
 INTERVAL = int(os.environ.get("INTERVAL_SECONDS", "60"))
-
-STATE_FILE = "/data/state.json"
 
 def send_telegram(text: str) -> None:
     r = requests.post(
@@ -34,10 +30,6 @@ def fetch(url: str) -> str:
     r = requests.get(url, timeout=30, headers={"User-Agent": "g-studio-monitor/1.0"})
     r.raise_for_status()
     return r.text
-
-def _normalize(s: str) -> str:
-    """Lowercase and collapse whitespace so we can match regardless of case/formatting."""
-    return " ".join(s.lower().split())
 
 def _text_only(html: str) -> str:
     """Strip HTML tags and normalize whitespace for a readable diff."""
@@ -91,17 +83,7 @@ def main():
                 send_telegram(msg)
             last_page_hash = page_hash
             last_page_html = html
-
-            # Alert when KEYWORD is missing (registration opened). Case-insensitive, ignores extra whitespace.
-            html_normalized = _normalize(html)
-            keyword_normalized = _normalize(KEYWORD)
-            opened = (KEYWORD != "" and keyword_normalized not in html_normalized)
-
-            if opened:
-                send_telegram(f"🚨 Registration to Israel Congress looks OPEN: {URL}")
-
-            status = "open" if opened else "closed"
-            print(f"Registration is {status}, last check was: {last_check}")
+            print(f"Check done, last check was: {last_check}")
 
         except Exception as e:
             # Don’t spam on errors; just wait and retry
