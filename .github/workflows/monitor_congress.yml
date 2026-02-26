@@ -1,96 +1,83 @@
-name: Monitor Website
+# Feliz congress registration: alert when page is open (no password) or closed (password-protected).
+name: Monitor Feliz Congress
 
 on:
   schedule:
     - cron: "*/5 * * * *"  # every 5 minutes
   workflow_dispatch:
 
-env:
-  URL: https://www.latino.co.il/r/
-
 jobs:
   check:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install Python deps
-        run: python3 -m pip install --quiet requests
-
       - name: Restore previous state
         uses: actions/cache/restore@v4
         with:
-          key: monitor-page-state
-          path: .monitor-state
+          key: feliz-monitor-state
+          path: .feliz-state
 
-      - name: Fetch page
-        run: curl -s "${{ env.URL }}" > page.html
-
-      - name: Compare and notify on change
+      - name: Check registration and notify
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: |
           python3 << 'PY'
-          import os, re, hashlib, difflib, requests
+          import os
+          import requests
+          from datetime import datetime
           from pathlib import Path
+          from zoneinfo import ZoneInfo
 
-          URL = os.environ["URL"]
-          MAX_LEN = 4096 - 400
+          ISRAEL_TZ = ZoneInfo("Asia/Jerusalem")
+          BLOCK_TEXT = "This content is password-protected. To view it, please enter the password below"
+          year = datetime.now(ISRAEL_TZ).year
+          url = f"https://www.feliz.co.il/event/congress-{year}/"
 
-          def text_only(html):
-              text = re.sub(r"<[^>]+>", " ", html)
-              return re.sub(r"\s+", " ", text).strip()
+          def date_str(dt):
+              return f"{dt.day}.{dt.month}.{dt.year}"
+          def time_str(dt):
+              return f"{dt.hour:02d}:{dt.minute:02d}"
 
-          def describe_changes(old_html, new_html):
-              old_text = text_only(old_html)
-              new_text = text_only(new_html)
-              if old_text == new_text:
-                  return "(no visible text change; possibly markup/whitespace)"
-              parts = []
-              matcher = difflib.SequenceMatcher(None, old_text, new_text)
-              for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-                  if tag == "replace":
-                      o, n = old_text[i1:i2].strip(), new_text[j1:j2].strip()
-                      if o or n:
-                          o = (o[:150] + "…") if len(o) > 150 else o
-                          n = (n[:150] + "…") if len(n) > 150 else n
-                          parts.append(f"− {o}\n+ {n}")
-                  elif tag == "delete" and old_text[i1:i2].strip():
-                      parts.append("− " + old_text[i1:i2].strip()[:150])
-                  elif tag == "insert" and new_text[j1:j2].strip():
-                      parts.append("+ " + new_text[j1:j2].strip()[:150])
-              result = "\n\n".join(parts) if parts else "(no visible text change)"
-              return result[:MAX_LEN] + "\n... (truncated)" if len(result) > MAX_LEN else result
+          r = requests.get(url, headers={"User-Agent": "FelizWatcher/1.0"}, timeout=15)
+          r.raise_for_status()
+          html = r.text
+          still_blocked = BLOCK_TEXT in html
+          now_dt = datetime.now(ISRAEL_TZ)
 
-          state_dir = Path(".monitor-state")
+          state_dir = Path(".feliz-state")
           state_dir.mkdir(exist_ok=True)
-          page_html = Path("page.html").read_text(encoding="utf-8", errors="ignore")
-          current_hash = hashlib.sha256(page_html.encode("utf-8", errors="ignore")).hexdigest()
-          last_hash_file = state_dir / "last_hash.txt"
-          last_html_file = state_dir / "last_html.html"
+          state_file = state_dir / "was_blocked.txt"
 
-          if last_hash_file.exists():
-              last_hash = last_hash_file.read_text().strip()
-              if last_hash != current_hash and last_html_file.exists():
-                  last_html = last_html_file.read_text(encoding="utf-8", errors="ignore")
-                  change_desc = describe_changes(last_html, page_html)
-                  msg = f"📄 Something changed in the page:\n{URL}\n\nChanges (text):\n{change_desc}"
-                  if len(msg) > 4096:
-                      msg = msg[:4050] + "\n... (truncated)"
-                  token = os.environ["BOT_TOKEN"]
-                  chat_id = os.environ["CHAT_ID"]
+          was_blocked = None
+          if state_file.exists():
+              was_blocked = state_file.read_text().strip() == "true"
+
+          send = False
+          if still_blocked:
+              if was_blocked is None or was_blocked is False:
+                  send = True
+                  msg = f"🔒 ההרשמה לקונגרס נסגרה\n{url}\n📅 {date_str(now_dt)}\n🕐 {time_str(now_dt)}"
+          else:
+              if was_blocked is None or was_blocked:
+                  send = True
+                  msg = f"🔓 ההרשמה לקונגרס נפתחה\n{url}\n📅 {date_str(now_dt)}\n🕐 {time_str(now_dt)}"
+
+          if send:
+              token = os.environ.get("BOT_TOKEN")
+              chat_id = os.environ.get("CHAT_ID")
+              if token and chat_id:
                   requests.post(
                       f"https://api.telegram.org/bot{token}/sendMessage",
-                      data={"chat_id": chat_id, "text": msg},
-                      timeout=20,
+                      json={"chat_id": chat_id, "text": msg},
+                      timeout=10,
                   )
 
-          last_hash_file.write_text(current_hash)
-          last_html_file.write_text(page_html)
+          state_file.write_text("true" if still_blocked else "false")
           PY
 
       - name: Save state for next run
         uses: actions/cache/save@v4
         with:
-          key: monitor-page-state
-          path: .monitor-state
+          key: feliz-monitor-state
+          path: .feliz-state
