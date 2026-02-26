@@ -21,3 +21,6 @@ Thumbs.db
 
 # Local state / data (if you keep it in repo)
 /data/
+*.db
+*.sqlite
+*.sqlite3
